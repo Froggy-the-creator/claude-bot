@@ -44,8 +44,8 @@ Each exchange is written to a local SQLite database with input tokens, output to
 Clone and install dependencies:
 
 ```bash
-git clone https://github.com/Froggy-the-creator/<repo-name>.git
-cd <repo-name>
+git clone https://github.com/Froggy-the-creator/claude-bot.git
+cd claude-bot
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -76,7 +76,7 @@ ngrok http 5000
 Then in the Twilio console, set the WhatsApp sandbox webhook ("when a message comes in") to:
 
 ```
-https://<your-ngrok-subdomain>.ngrok.io/bot
+https://<your-subdomain>.ngrok-free.app/bot
 ```
 
 Send a message to the sandbox number from WhatsApp to test.

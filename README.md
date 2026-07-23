@@ -4,6 +4,8 @@ A WhatsApp chatbot backed by the Anthropic API. Messages arrive via a Twilio web
 
 Built to learn webhook-driven architecture, third-party API integration, and deployment of a live service.
 
+> **Status: archived.** This ran as a deployed service during development but is no longer hosted. The code is complete and tested — see [Testing](#testing) — and can be run locally or redeployed by following the setup below.
+
 ## How it works
 
 ```
@@ -87,7 +89,9 @@ The included `Procfile` runs the app under gunicorn:
 web: gunicorn app:app --bind 0.0.0.0:$PORT
 ```
 
-Set `ANTHROPIC_API_KEY` as an environment variable in your hosting platform rather than committing a `.env` file. After deploying, update the Twilio webhook URL to point at your deployed `/bot` endpoint.
+Set `ANTHROPIC_API_KEY`, `TWILIO_AUTH_TOKEN`, and `ADMIN_NUMBERS` in your hosting platform's environment variable settings rather than committing a `.env` file. `TWILIO_AUTH_TOKEN` in particular must be set before the first request arrives — without it, signature verification rejects every webhook with a 403 and the bot goes silent.
+
+After deploying, update the Twilio webhook URL to point at your deployed `/bot` endpoint. The URL must match exactly, including the scheme, since Twilio signs the URL it sends to.
 
 Note that on platforms with an ephemeral filesystem, `usage.db` is reset on every redeploy. Point SQLite at a mounted volume, or swap to a managed database, if the usage log needs to persist.
 
@@ -109,13 +113,34 @@ These are understood tradeoffs rather than oversights, and are the next things t
 - **No rate limiting**, so a single user can drive up cost without bound.
 - **WhatsApp caps messages at 1600 characters**; longer replies from Claude will fail to send.
 
+## Testing
+
+`test_local.py` exercises the full request path without a tunnel or a deployment, by signing requests with the same HMAC scheme Twilio uses. It covers webhook authentication (unsigned, forged, and valid signatures), the admin allow-list on `!all`, and the command handlers.
+
+Start the app in one terminal and run the tests in another:
+
+```bash
+python app.py
+python test_local.py
+```
+
+The live Claude call is skipped by default so the suite costs nothing to run. To include it:
+
+```bash
+TEST_LIVE_API=1 python test_local.py     # Windows: $env:TEST_LIVE_API=1
+```
+
+Note that `ADMIN_NUMBERS` is read once at startup, so restart the app after changing it or the admin test will fail against a stale value.
+
 ## Project structure
 
 ```
 .
 ├── app.py             # Flask app, webhook handler, Claude integration, usage logging
+├── test_local.py      # Signed-request test suite for auth and command handling
 ├── requirements.txt   # Pinned dependencies
 ├── Procfile           # Process definition for deployment
+├── .env.example       # Template for required environment variables
 ├── .gitignore
 └── README.md
 ```

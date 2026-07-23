@@ -1,7 +1,9 @@
 import os
 from dotenv import load_dotenv
-from flask import Flask, request
+from flask import Flask, request, abort
 from twilio.twiml.messaging_response import MessagingResponse
+from twilio.request_validator import RequestValidator
+from werkzeug.middleware.proxy_fix import ProxyFix
 import anthropic
 import sqlite3
 from datetime import datetime
@@ -9,7 +11,22 @@ from datetime import datetime
 load_dotenv()  # reads your .env file
 
 app = Flask(__name__)
+
+# Trust the platform's proxy headers so request.url reports the original
+# https:// URL. Twilio signs the URL it sent to; behind a load balancer
+# Flask would otherwise rebuild it as http:// and the signature never matches.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+# Twilio signs every webhook request with your account auth token.
+validator = RequestValidator(os.getenv("TWILIO_AUTH_TOKEN", ""))
+
+# Numbers allowed to run admin commands, comma-separated, in the same
+# format Twilio sends: whatsapp:+6591234567,whatsapp:+6598765432
+ADMIN_NUMBERS = {
+    n.strip() for n in os.getenv("ADMIN_NUMBERS", "").split(",") if n.strip()
+}
 
 def init_db():
     conn = sqlite3.connect("usage.db")
@@ -89,6 +106,12 @@ def chat_with_claude(phone_number, user_message):
 
 @app.route("/bot", methods=["POST"])
 def bot():
+    # Reject anything that is not a genuine Twilio request. Without this,
+    # anyone who learns the URL can POST here and spend API credits.
+    signature = request.headers.get("X-Twilio-Signature", "")
+    if not validator.validate(request.url, request.form, signature):
+        abort(403)
+
     # get the incoming message details from Twilio
     incoming_msg = request.form.get("Body", "").strip()
     phone_number = request.form.get("From", "")
@@ -121,6 +144,12 @@ def bot():
 
     # special command - admin sees everyone's usage
     if incoming_msg.lower() == "!all":
+        # Deny non-admins. Reply as though the command does not exist rather
+        # than "not authorised", so we do not confirm it to someone probing.
+        if phone_number not in ADMIN_NUMBERS:
+            msg.body("Unknown command.")
+            return str(resp)
+
         conn = sqlite3.connect("usage.db")
         cursor = conn.cursor()
         cursor.execute("""
